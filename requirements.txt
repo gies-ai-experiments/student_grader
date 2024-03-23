@@ -1,0 +1,11 @@
+lanarky
+langchain
+openai
+tiktoken
+faiss-cpu
+gradio
+fastapi
+uvicorn[standard]
+bs4
+pathvalidate
+unstructured
