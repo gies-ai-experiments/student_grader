@@ -13,7 +13,7 @@ import traceback
 import json
 import re
 import pandas as pd
-from fastapi import FastAPI
+#from fastapi import FastAPI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -22,7 +22,7 @@ AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_KEY")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
 os.environ["AZURE_OPENAI_API_KEY"] = AZURE_OPENAI_API_KEY
 os.environ["AZURE_OPENAI_ENDPOINT"] = AZURE_OPENAI_ENDPOINT
-app = FastAPI()
+#app = FastAPI()
 grader = None
 grader_qa = None
 disabled = gr.update(interactive=False)
@@ -317,5 +317,6 @@ with gr.Blocks() as demo:
         reset, inputs=[], outputs=[url, canvas_api_key, student_input, submit_button, view_button]
     )
 
-app = gr.mount_gradio_app(app, demo, path="/")
+#app = gr.mount_gradio_app(app, demo, path="/")
 #demo.launch(server_name="0.0.0.0", server_port=7000)
+demo.launch()
