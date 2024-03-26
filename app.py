@@ -11,7 +11,9 @@ import shutil
 import time
 import traceback
 import json
+import re
 import pandas as pd
+from fastapi import FastAPI
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
@@ -20,13 +22,16 @@ AZURE_OPENAI_API_KEY = os.environ.get("AZURE_OPENAI_KEY")
 AZURE_OPENAI_ENDPOINT = os.environ.get("AZURE_OPENAI_ENDPOINT")
 os.environ["AZURE_OPENAI_API_KEY"] = AZURE_OPENAI_API_KEY
 os.environ["AZURE_OPENAI_ENDPOINT"] = AZURE_OPENAI_ENDPOINT
-
+app = FastAPI()
 grader = None
 grader_qa = None
 disabled = gr.update(interactive=False)
 enabled = gr.update(interactive=True)
 grading_model = "gpt-4-32k"
 qa_model = "gpt-4-32k"
+
+submit_visible = True
+view_rubric_visible = False
 
 llm = AzureChatOpenAI(
     azure_deployment=grading_model,
@@ -65,74 +70,83 @@ def run_model(text):
     return response
 
 
-def ingest(url, canvas_api_key, state):
-    global grader, llm, embeddings
+def ingest(url, canvas_api_key):
+    global grader, llm, submit_visible, view_rubric_visible
     try:
         text = f"Downloaded discussion data from {url} to start grading"
         extract_and_save_instruction(url, canvas_api_key)
         grader = Grader(grading_model)
-        response = "Ingested canvas data successfully"
-        history = state.get("history", []) + [(text, response)]
-        state.update(
-            {
-                "submitted": True,
-                "history": history,
-            }
-        )
-        # Indicate that the instructions have been processed and disable the submit button
-        submit_button_text = "Instructions processed"
-        submit_button_disabled = True
-        # Return updated state and update UI elements as needed
+
+        submit_visible = False
+        view_rubric_visible = True
+        
         return (
-            state,
-            "",
-            gr.update(value=submit_button_text),
-            gr.update(visible=False),
-            gr.update(visible=False),
+            gr.update(value="Instructions processed", interactive=False),
+            gr.update(value="Instructions processed", interactive=False),
+            gr.update(visible=submit_visible),
+            gr.update(visible=view_rubric_visible),
         )
     except Exception as e:
         print(f"Error during ingestion: {str(e)}")
-        state.update(
-            {
-                "submitted": False,
-            }
-        )
-        # Keep the submit button enabled in case of failure so the user can try again
+        
         return (
-            state,
             "Failed to ingest data. Please check the URL and API Key.",
-            "",
-            "",
-            "",
+            gr.update(interactive=True),
+            gr.update(visible=True),
+            gr.update(visible=False),
         )
 
 
-async def summarize_rubric(state):
+async def summarize_rubric():
     try:
         # Initialize the Summarizer with the model and rubric file path
         summarizer = Summarizer(model="gpt-4", rubric_file="docs/rubric_data.json")
 
         # Generate the summary
         summary = await summarizer.summarize()
+        content = summary.replace('\r\n', '\n').replace('\r', '\n')
 
-        # Format the summary as HTML
+        # Patterns to match each section based on the headings.
+        assignment_objective_pattern = r"Assignment Objective:\s*(.*?)(?=Main Tasks:|$)"
+        main_tasks_pattern = r"Main Tasks:\s*(.*?)(?=Evaluation Criteria:|$)"
+        evaluation_criteria_pattern = r"Evaluation Criteria:\s*(.*)"
+
+        # Using regex to find each section in the content.
+        assignment_objective_match = re.search(assignment_objective_pattern, content, re.DOTALL)
+        main_tasks_match = re.search(main_tasks_pattern, content, re.DOTALL)
+        evaluation_criteria_match = re.search(evaluation_criteria_pattern, content, re.DOTALL)
+
+        # Extracting text if matches are found, otherwise return an empty string.
+        assignment_objective = assignment_objective_match.group(1).strip() if assignment_objective_match else ""
+        main_tasks = main_tasks_match.group(1).strip() if main_tasks_match else ""
+        evaluation_criteria = evaluation_criteria_match.group(1).strip() if evaluation_criteria_match else ""
+
+        # Optionally replace newline characters with HTML breaks for display.
+        assignment_objective = assignment_objective.replace('\\', '')[1:-2]
+        main_tasks = main_tasks.replace('\\', '')[1:-2]
+        evaluation_criteria = evaluation_criteria.replace('\\', '')[1:-1]
+        
+        print(f"Assignment Objective: {assignment_objective}")
+        print(f"Main Tasks: {main_tasks}")
+        print(f"Evaluation Criteria: {evaluation_criteria}")
+        
         rubric_html = f"""
         <div style='font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); background-color: #f9f9f9;'>
             <h2 style='color: #333;'>Rubric Summary</h2>
-            <p><strong>Assignment Objective:</strong> The objective of the Module 4 Assignment: New Business Idea is to apply the concepts learned in the course to develop a new business idea leveraging Large Language Models or other generative AI tools. The idea should have potential for monetization and should leverage the principles of the 'Social Web' or Web 3.0.</p>
-            <p><strong>Main Tasks:</strong> The assignment is divided into two parts. In Part 1, students are required to come up with a new business idea, considering their interests, passions, and potential relevance to the CU community. They should interact with a Discord bot to generate and refine five business ideas, ultimately selecting one for submission. The idea should be presented in a 600-word essay, detailing the need it fulfills, the goals it serves, how it will leverage course concepts, its competitive advantage, and its monetization strategy. All sources, including the chatbot, must be cited.</p>
-            <p><strong>Evaluation Criteria:</strong> The assignment will be evaluated on the following rubric categories: Business Idea Creativity (5 points), Business Need and Goals (5 points), Competitive Advantage (5 points), Leveraging Course Concepts (5 points), Monetization Strategy (5 points), and Organization and Structure (5 points). The maximum possible points for the assignment is 15.</p>
+            <p><strong>Assignment Objective:</strong><br>{assignment_objective}</p>
+            <p><strong>Main Tasks:</strong><br>{main_tasks}</p>
+            <p><strong>Evaluation Criteria:</strong><br>{evaluation_criteria}</p>
         </div>
         """
 
-        return rubric_html, state
+        return rubric_html
     except Exception as e:
         print(f"Error summarizing rubric: {str(e)}")
-        return "Failed to summarize rubric data.", state
+        return "Failed to summarize rubric data."
 
 
-def view_rubric_summary(state):
-    return asyncio.run(summarize_rubric(state))
+def view_rubric_summary():
+    return asyncio.run(summarize_rubric())
 
 
 def clean_feedback_text(text):
@@ -145,15 +159,13 @@ def clean_feedback_text(text):
     return cleaned_text
 
 
-def get_feedback(student_input, state):
+def get_feedback(student_input):
     global grader
     message = (
         "Please submit your response to get AI-powered feedback."
-        if not state.get("submitted", False)
-        else ""
     )
 
-    if state.get("submitted", False):
+    if True:  # Assuming submission has occurred
         if grader is None:
             grader = Grader(model="gpt-4")  # Ensure Grader is initialized
 
@@ -195,25 +207,42 @@ def get_feedback(student_input, state):
             <p>{summary}</p>
         </div>
         """
-        message = "This feedback is generated by AI. Review the feedback, revise your submission accordingly, and consider resubmitting for further evaluation."
-        return feedback_html, state, message
+        message = "This feedback is powered by GPT4 and given based on description and rubric. Review the feedback, revise your submission accordingly, and consider resubmitting for further evaluation."
+        return feedback_html, message
     else:
-        return "", state, message
+        return "", message
 
 
-def reset(state):
-    # Function to reset the UI
-    state["submitted"] = False
-    return "", "", "", state
+def reset():
+    global submit_visible, view_rubric_visible
+
+    rubric_file_path = "docs/rubric_data.json" 
+    try:
+        os.remove(rubric_file_path) 
+        print("Rubric data deleted successfully.")
+    except FileNotFoundError:
+        print("Rubric data file not found.")
+    except Exception as e:
+        print(f"An error occurred while deleting rubric data: {e}")
+        
+    submit_visible = True
+    view_rubric_visible = False
+    return (
+        gr.update(value="", interactive=True),  # Update for url Textbox
+        gr.update(value="", interactive=True),  # Update for canvas_api_key Textbox
+        gr.update(value="", interactive=True),  # Update for student_input TextArea
+        gr.update(visible=submit_visible),      # Update for submit_button visibility
+        gr.update(visible=view_rubric_visible)  # Update for view_button visibility
+    )  
 
 
-def add_text_to_chatbot(text, state):
+def add_text_to_chatbot(text):
     # Function to handle chatbot interaction
     # The chat should work only if the state 'submitted' is True
-    if state.get("submitted"):
-        return text, state
+    if True:  # Assuming submission has occurred
+        return text
     else:
-        return "Please submit your response first.", state
+        return "Please submit your response first."
 
 
 def bot(history):
@@ -226,18 +255,14 @@ def get_output_dir(orig_name):
     return output_dir
 
 
-def check_rubric_file_exists():
-    rubric_file_path = "docs/rubric_data.json"  # Update this path as necessary
-    return os.path.exists(rubric_file_path)
+# def check_rubric_file_exists():
+#     rubric_file_path = "docs/rubric_data.json"  # Update this path as necessary
+#     return os.path.exists(rubric_file_path)
 
 
 with gr.Blocks() as demo:
     gr.Markdown("<h2><center>Canvas Discussion Feedback Interface</center></h2>")
 
-    initial_submitted_state = check_rubric_file_exists()
-
-    # Initialize state with the correct 'submitted' value
-    state = gr.State({"submitted": initial_submitted_state})
 
     with gr.Row():
         with gr.Column(scale=2):
@@ -246,27 +271,15 @@ with gr.Blocks() as demo:
                 url = gr.Textbox(
                     label="Canvas Discussion URL",
                     placeholder="Enter your Canvas Discussion URL",
-                    interactive=not initial_submitted_state,
                 )
                 canvas_api_key = gr.Textbox(
                     label="Canvas API Key",
                     placeholder="Enter your Canvas API Key",
                     type="password",
-                    interactive=not initial_submitted_state,
                 )
                 with gr.Column(scale=2):
-                    submit_button = gr.Button(
-                        "Submit", visible=not initial_submitted_state
-                    )
-                    view_button = gr.Button(
-                        "View Rubric", visible=initial_submitted_state
-                    )
-
-                # If the rubric file exists, update the UI elements to reflect the processed state
-                if initial_submitted_state:
-                    url.value = "Instructions processed"
-                    canvas_api_key.value = "Instructions processed"
-                    submit_button.visible = False
+                    submit_button = gr.Button("Submit", visible=True)  # Initial visibility based on the default assumption
+                    view_button = gr.Button("View Rubric", visible=False)
 
                 reset_button = gr.Button("Reset")
 
@@ -286,23 +299,23 @@ with gr.Blocks() as demo:
             )
             feedback_html_display = gr.HTML()
 
-    # Link functions to buttons with state included in inputs and outputs
+    # Link functions to buttons without state included in inputs and outputs
     submit_button.click(
         ingest,
-        inputs=[url, canvas_api_key, state],
-        outputs=[state, url, canvas_api_key, submit_button],
+        inputs=[url, canvas_api_key],
+        outputs=[url, canvas_api_key, submit_button, view_button],
     )
     view_button.click(
-        view_rubric_summary, inputs=[state], outputs=[feedback_html_display, state]
+        view_rubric_summary, inputs=[], outputs=[feedback_html_display]
     )
     feedback_button.click(
         get_feedback,
-        inputs=[student_input, state],
-        outputs=[feedback_html_display, state, ai_message],
+        inputs=[student_input],
+        outputs=[feedback_html_display, ai_message],
     )
     reset_button.click(
-        reset, inputs=[state], outputs=[url, canvas_api_key, student_input, state]
+        reset, inputs=[], outputs=[url, canvas_api_key, student_input, submit_button, view_button]
     )
 
-
-demo.launch()
+app = gr.mount_gradio_app(app, demo, path="/")
+#demo.launch(server_name="0.0.0.0", server_port=7000)

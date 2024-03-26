@@ -128,9 +128,9 @@ class Summarizer:
         {self.rubric_text}
 
         Format the summary as follows:
-        - Assignment Objective:
-        - Main Tasks:
-        - Evaluation Criteria:
+        Assignment Objective:
+        Main Tasks:
+        Evaluation Criteria:
         """
 
         response = await asyncio.get_event_loop().run_in_executor(
