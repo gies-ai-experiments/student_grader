@@ -7,7 +7,6 @@ from utils import reset_folder
 from grader import Grader
 import asyncio
 import glob
-import shutil
 import time
 import traceback
 import re
