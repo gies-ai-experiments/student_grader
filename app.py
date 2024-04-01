@@ -10,7 +10,6 @@ import glob
 import shutil
 import time
 import traceback
-import json
 import re
 import pandas as pd
 from fastapi import FastAPI
@@ -79,7 +78,7 @@ def ingest(url, canvas_api_key):
 
         submit_visible = False
         view_rubric_visible = True
-        
+
         return (
             gr.update(value="Instructions processed", interactive=False),
             gr.update(value="Instructions processed", interactive=False),
@@ -88,7 +87,7 @@ def ingest(url, canvas_api_key):
         )
     except Exception as e:
         print(f"Error during ingestion: {str(e)}")
-        
+
         return (
             "Failed to ingest data. Please check the URL and API Key.",
             gr.update(interactive=True),
@@ -104,7 +103,7 @@ async def summarize_rubric():
 
         # Generate the summary
         summary = await summarizer.summarize()
-        content = summary.replace('\r\n', '\n').replace('\r', '\n')
+        content = summary.replace("\r\n", "\n").replace("\r", "\n")
 
         # Patterns to match each section based on the headings.
         assignment_objective_pattern = r"Assignment Objective:\s*(.*?)(?=Main Tasks:|$)"
@@ -112,24 +111,36 @@ async def summarize_rubric():
         evaluation_criteria_pattern = r"Evaluation Criteria:\s*(.*)"
 
         # Using regex to find each section in the content.
-        assignment_objective_match = re.search(assignment_objective_pattern, content, re.DOTALL)
+        assignment_objective_match = re.search(
+            assignment_objective_pattern, content, re.DOTALL
+        )
         main_tasks_match = re.search(main_tasks_pattern, content, re.DOTALL)
-        evaluation_criteria_match = re.search(evaluation_criteria_pattern, content, re.DOTALL)
+        evaluation_criteria_match = re.search(
+            evaluation_criteria_pattern, content, re.DOTALL
+        )
 
         # Extracting text if matches are found, otherwise return an empty string.
-        assignment_objective = assignment_objective_match.group(1).strip() if assignment_objective_match else ""
+        assignment_objective = (
+            assignment_objective_match.group(1).strip()
+            if assignment_objective_match
+            else ""
+        )
         main_tasks = main_tasks_match.group(1).strip() if main_tasks_match else ""
-        evaluation_criteria = evaluation_criteria_match.group(1).strip() if evaluation_criteria_match else ""
+        evaluation_criteria = (
+            evaluation_criteria_match.group(1).strip()
+            if evaluation_criteria_match
+            else ""
+        )
 
         # Optionally replace newline characters with HTML breaks for display.
-        assignment_objective = assignment_objective.replace('\\', '')[1:-2]
-        main_tasks = main_tasks.replace('\\', '')[1:-2]
-        evaluation_criteria = evaluation_criteria.replace('\\', '')[1:-1]
-        
+        assignment_objective = assignment_objective.replace("\\", "")[1:-2]
+        main_tasks = main_tasks.replace("\\", "")[1:-2]
+        evaluation_criteria = evaluation_criteria.replace("\\", "")[1:-1]
+
         print(f"Assignment Objective: {assignment_objective}")
         print(f"Main Tasks: {main_tasks}")
         print(f"Evaluation Criteria: {evaluation_criteria}")
-        
+
         rubric_html = f"""
         <div style='font-family: sans-serif; max-width: 800px; margin: auto; padding: 20px; border-radius: 10px; box-shadow: 0 0 10px rgba(0,0,0,0.1); background-color: #f9f9f9;'>
             <h2 style='color: #333;'>Rubric Summary</h2>
@@ -161,9 +172,7 @@ def clean_feedback_text(text):
 
 def get_feedback(student_input):
     global grader
-    message = (
-        "Please submit your response to get AI-powered feedback."
-    )
+    message = "Please submit your response to get AI-powered feedback."
 
     if True:  # Assuming submission has occurred
         if grader is None:
@@ -216,24 +225,24 @@ def get_feedback(student_input):
 def reset():
     global submit_visible, view_rubric_visible
 
-    rubric_file_path = "docs/rubric_data.json" 
+    rubric_file_path = "docs/rubric_data.json"
     try:
-        os.remove(rubric_file_path) 
+        os.remove(rubric_file_path)
         print("Rubric data deleted successfully.")
     except FileNotFoundError:
         print("Rubric data file not found.")
     except Exception as e:
         print(f"An error occurred while deleting rubric data: {e}")
-        
+
     submit_visible = True
     view_rubric_visible = False
     return (
         gr.update(value="", interactive=True),  # Update for url Textbox
         gr.update(value="", interactive=True),  # Update for canvas_api_key Textbox
         gr.update(value="", interactive=True),  # Update for student_input TextArea
-        gr.update(visible=submit_visible),      # Update for submit_button visibility
-        gr.update(visible=view_rubric_visible)  # Update for view_button visibility
-    )  
+        gr.update(visible=submit_visible),  # Update for submit_button visibility
+        gr.update(visible=view_rubric_visible),  # Update for view_button visibility
+    )
 
 
 def add_text_to_chatbot(text):
@@ -263,7 +272,6 @@ def get_output_dir(orig_name):
 with gr.Blocks() as demo:
     gr.Markdown("<h2><center>Canvas Discussion Feedback Interface</center></h2>")
 
-
     with gr.Row():
         with gr.Column(scale=2):
             with gr.Group():
@@ -278,7 +286,9 @@ with gr.Blocks() as demo:
                     type="password",
                 )
                 with gr.Column(scale=2):
-                    submit_button = gr.Button("Submit", visible=True)  # Initial visibility based on the default assumption
+                    submit_button = gr.Button(
+                        "Submit", visible=True
+                    )  # Initial visibility based on the default assumption
                     view_button = gr.Button("View Rubric", visible=False)
 
                 reset_button = gr.Button("Reset")
@@ -305,18 +315,18 @@ with gr.Blocks() as demo:
         inputs=[url, canvas_api_key],
         outputs=[url, canvas_api_key, submit_button, view_button],
     )
-    view_button.click(
-        view_rubric_summary, inputs=[], outputs=[feedback_html_display]
-    )
+    view_button.click(view_rubric_summary, inputs=[], outputs=[feedback_html_display])
     feedback_button.click(
         get_feedback,
         inputs=[student_input],
         outputs=[feedback_html_display, ai_message],
     )
     reset_button.click(
-        reset, inputs=[], outputs=[url, canvas_api_key, student_input, submit_button, view_button]
+        reset,
+        inputs=[],
+        outputs=[url, canvas_api_key, student_input, submit_button, view_button],
     )
 
 app = gr.mount_gradio_app(app, demo, path="/")
-#demo.launch(server_name="0.0.0.0", server_port=7000)
-#demo.launch()
+# demo.launch(server_name="0.0.0.0", server_port=7000)
+# demo.launch()
